@@ -25,7 +25,7 @@ momento do `terraform plan` — quebrando o primeiro `apply`.
 module "argocd" {
   source = "../modules/argocd"
 
-  gitops_repo_url        = "https://github.com/FIAP-Teach-Challenge-2/toggle-master-infra.git"
+  gitops_repo_url        = "https://github.com/DanielBrisch/tech-challenge-03.git"
   gitops_target_revision = "main"
   gitops_path            = "aws/argocd/applications"
 }

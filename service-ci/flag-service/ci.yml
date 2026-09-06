@@ -1,0 +1,15 @@
+name: CI · flag-service
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    uses: DanielBrisch/tech-challenge-03/.github/workflows/reusable-ci-python.yml@main
+    with:
+      service: flag-service
+      ecr-repository: togglemaster/flag-service
+    secrets: inherit

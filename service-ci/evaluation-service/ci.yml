@@ -1,0 +1,15 @@
+name: CI · evaluation-service
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    uses: DanielBrisch/tech-challenge-03/.github/workflows/reusable-ci-go.yml@main
+    with:
+      service: evaluation-service
+      ecr-repository: togglemaster/evaluation-service
+    secrets: inherit

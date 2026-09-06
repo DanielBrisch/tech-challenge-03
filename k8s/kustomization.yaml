@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Agregador de conveniência: aplica tudo de uma vez sem o Argo CD, para
+# depuração. No fluxo normal quem aplica é o Argo CD, uma Application por
+# diretório — ver argocd/applications/.
+resources:
+- platform
+- apps/auth-service
+- apps/flag-service
+- apps/targeting-service
+- apps/evaluation-service
+- apps/analytics-service

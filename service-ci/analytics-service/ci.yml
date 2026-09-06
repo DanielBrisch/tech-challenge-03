@@ -1,0 +1,15 @@
+name: CI · analytics-service
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    uses: DanielBrisch/tech-challenge-03/.github/workflows/reusable-ci-python.yml@main
+    with:
+      service: analytics-service
+      ecr-repository: togglemaster/analytics-service
+    secrets: inherit

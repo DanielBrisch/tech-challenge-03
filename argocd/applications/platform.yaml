@@ -1,0 +1,26 @@
+# Namespace, ConfigMap, Ingress, HPAs e os Jobs de bootstrap dos bancos.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: toggle-master-platform
+  namespace: argocd
+  annotations:
+    # Sincroniza antes das Applications dos 5 serviços.
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/DanielBrisch/tech-challenge-03.git
+    targetRevision: main
+    path: k8s/platform
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: toggle-master
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

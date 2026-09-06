@@ -43,7 +43,7 @@ variable "argocd_chart_version" {
 variable "gitops_repo_url" {
   description = "Repositório Git que o Argo CD monitora."
   type        = string
-  default     = "https://github.com/FIAP-Teach-Challenge-2/toggle-master-infra.git"
+  default     = "https://github.com/DanielBrisch/tech-challenge-03.git"
 }
 
 variable "gitops_target_revision" {

@@ -1,0 +1,25 @@
+# App of Apps — o único manifesto aplicado à mão. Ele traz as 6 Applications
+# de argocd/applications/; a partir daí, adicionar um serviço é commitar
+# um YAML naquela pasta.
+#
+#   kubectl apply -n argocd -f aws/argocd/root-app.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: toggle-master-root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/DanielBrisch/tech-challenge-03.git
+    targetRevision: main
+    path: argocd/applications
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

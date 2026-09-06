@@ -25,7 +25,7 @@ variable "root_app_name" {
 variable "gitops_repo_url" {
   description = "Repositório Git que o Argo CD monitora."
   type        = string
-  default     = "https://github.com/FIAP-Teach-Challenge-2/toggle-master-infra.git"
+  default     = "https://github.com/DanielBrisch/tech-challenge-03.git"
 }
 
 variable "gitops_target_revision" {
@@ -37,7 +37,7 @@ variable "gitops_target_revision" {
 variable "gitops_path" {
   description = "Diretório, dentro do repositório, com as Applications filhas."
   type        = string
-  default     = "aws/argocd/applications"
+  default     = "argocd/applications"
 }
 
 variable "bootstrap_root_app" {

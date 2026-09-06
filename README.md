@@ -1,13 +1,15 @@
 # ToggleMaster — Infraestrutura AWS (Terraform)
 
-Infraestrutura como código do **ToggleMaster**, projeto de feature flags do Tech
-Challenge Fase 3 da FIAP. Provisiona tudo que os 5 microsserviços precisam num
-cluster EKS, num ambiente **AWS Academy Learner Lab**.
+Tech Challenge Fase 3 da FIAP, **completo**: infraestrutura como código,
+pipeline de CI com DevSecOps e entrega contínua por GitOps, para os 5
+microsserviços do **ToggleMaster** (um sistema de feature flags) num cluster
+EKS, em ambiente **AWS Academy Learner Lab**.
 
-Os manifestos Kubernetes e a camada de GitOps ficam em outro repositório:
-[`FIAP-Teach-Challenge-2/toggle-master-infra`](https://github.com/FIAP-Teach-Challenge-2/toggle-master-infra).
-Este projeto cria a infraestrutura e instala o Argo CD — daí em diante quem faz
-o deploy é o Argo CD, a partir do Git.
+| Seção do enunciado | Onde está |
+|---|---|
+| 1 · Infraestrutura como Código | `infra/`, `platform/`, `modules/` |
+| 2 · CI & DevSecOps | `.github/workflows/reusable-ci-*.yml` + `service-ci/` |
+| 3 · Entrega Contínua & GitOps | `k8s/`, `argocd/`, `.github/workflows/gitops-bump.yml` |
 
 ```
 ├── scripts/
@@ -15,8 +17,15 @@ o deploy é o Argo CD, a partir do Git.
 │   ├── destroy.sh               derruba tudo, sem deixar nada
 │   ├── build-images.sh          builda as 5 imagens no cluster (kaniko)
 │   └── create-state-bucket.sh   bucket S3 do backend remoto
+├── k8s/         ③  manifestos: platform (compartilhados) + apps/<serviço>
+├── argocd/      ③  App of Apps + as 6 Applications
+├── service-ci/  ②  o ci.yml de cada serviço, para copiar nos 5 repositórios
+├── .github/workflows/
+│   ├── reusable-ci-go.yml       ②  lint · testes · SAST · SCA · Docker · ECR
+│   ├── reusable-ci-python.yml   ②  idem, para os 3 serviços Flask
+│   └── gitops-bump.yml          ③  troca a tag da imagem e commita
 ├── infra/       ①  VPC · EKS · 3 RDS · Redis · DynamoDB · SQS · ECR
-├── platform/    ②  ingress-nginx · Argo CD
+├── platform/    ①  ingress-nginx · Argo CD
 └── modules/
     ├── networking/   VPC, subnets, IGW, NAT, route tables
     ├── eks/          cluster + node group + add-on metrics-server
@@ -120,6 +129,73 @@ data "aws_iam_role" "lab" {
   name = var.lab_role_name          # "LabRole"
 }
 ```
+
+## ② CI & DevSecOps
+
+Toda a lógica vive em dois workflows reutilizáveis aqui — um para Go, um para
+Python. Cada repositório de serviço só carrega um `ci.yml` de 14 linhas, que
+está pronto em `service-ci/<serviço>/ci.yml`.
+
+Como o código dos 5 serviços fica na organização da faculdade, este projeto usa
+**forks pessoais** (`DanielBrisch/<serviço>`). Copie o `ci.yml` correspondente
+para `.github/workflows/` de cada fork.
+
+O pipeline roda a cada push e PR na `main`:
+
+| Estágio | Go | Python |
+|---|---|---|
+| Build e testes | `go build` + `go test -race` com cobertura | `compileall` + `pytest` |
+| Lint | golangci-lint | ruff |
+| SAST | gosec (`-severity high`) | bandit (`-ll -ii`) |
+| SCA | Trivy fs | Trivy fs |
+| Segredos | Trivy secret | Trivy secret |
+| Imagem | build → Trivy image → push no ECR | idem |
+
+**Regra de bloqueio:** vulnerabilidade `CRITICAL` reprova o pipeline, tanto nas
+dependências quanto na imagem. `HIGH` sai como relatório na aba de resumo, sem
+bloquear. Uso `--ignore-unfixed` porque CVE sem correção publicada não tem ação
+possível — reprovar por ela só ensina o time a ignorar o gate.
+
+Os gates de SAST e SCA são jobs com thresholds independentes de propósito:
+assim uma CVE nova numa dependência não mascara um problema no código-fonte,
+nem o contrário.
+
+O push só acontece em `push` na `main` — em Pull Request o pipeline roda até os
+scans e para aí.
+
+## ③ Entrega Contínua & GitOps
+
+```
+k8s/
+├── platform/          namespace · configmap · ingress · hpa · jobs de init
+└── apps/<serviço>/    deployment + service + kustomization
+argocd/
+├── root-app.yaml      App of Apps — o único manifesto aplicado à mão
+└── applications/      as 6 Applications
+```
+
+São **6 Applications**: uma por microsserviço, mais uma para os recursos
+compartilhados. Cada serviço vê só o seu diretório, então um manifesto quebrado
+não derruba os outros quatro. Todas com `automated`, `prune` e `selfHeal` — o
+Git é a fonte da verdade e alteração manual no cluster é desfeita sozinha.
+
+O elo com o CI é o `gitops-bump.yml`. No fim do pipeline, ele recebe serviço,
+imagem e tag, roda `kustomize edit set image` no `kustomization.yaml` daquele
+serviço, valida o build e commita. O Argo CD detecta em até 30 segundos.
+
+**Nenhum pipeline tem credencial de cluster.** O CI não roda `kubectl` — ele só
+commita num repositório Git. O `GITOPS_TOKEN` dá escrita em um repositório, não
+no EKS.
+
+### Secrets necessários
+
+Configure como secrets **do repositório** em cada um dos 5 forks (ou como
+secrets da organização, se preferir):
+
+| Secret | Conteúdo |
+|---|---|
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` | credenciais do Learner Lab — expiram a cada sessão |
+| `GITOPS_TOKEN` | PAT fine-grained com **Contents: Read and write** apenas neste repositório |
 
 ## Decisões de implementação
 

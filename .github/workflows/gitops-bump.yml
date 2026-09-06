@@ -1,0 +1,123 @@
+# Elo entre o CI dos 5 microsserviços e o Argo CD.
+#
+# Os repositórios de serviço chamam este workflow no último job do pipeline,
+# depois do push da imagem no ECR. Ele troca a tag em
+# k8s/apps/<serviço>/kustomization.yaml e commita. O Argo CD, que observa este
+# repositório, detecta o commit e sincroniza o cluster sozinho — nenhum
+# pipeline tem credencial de cluster.
+#
+# Como chamar: docs/ci-snippet.md
+name: GitOps · atualiza tag da imagem
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: 'auth-service | flag-service | targeting-service | evaluation-service | analytics-service'
+        required: true
+        type: string
+      image:
+        description: 'Imagem sem a tag. Ex: 696500328658.dkr.ecr.us-east-1.amazonaws.com/auth-service'
+        required: true
+        type: string
+      tag:
+        description: 'Tag imutável gerada pelo CI. Ex: v1.0.0-a1b2c3d'
+        required: true
+        type: string
+      gitops_repo:
+        description: 'Repositório de manifestos a atualizar.'
+        required: false
+        type: string
+        default: DanielBrisch/tech-challenge-03
+      gitops_ref:
+        description: 'Branch a atualizar.'
+        required: false
+        type: string
+        default: main
+    secrets:
+      GITOPS_TOKEN:
+        description: 'PAT com Contents:write no repositório de manifestos.'
+        required: true
+
+# Serializa re-runs vindos do MESMO repositório chamador. Não serializa entre
+# os 5 repositórios: grupos de concorrência são escopados por repositório, e
+# num reusable workflow o run pertence ao chamador. Quem garante a corretude
+# quando os 5 pipelines terminam juntos é o retry com rebase, no último step.
+concurrency:
+  group: gitops-bump-${{ inputs.service }}
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: bump ${{ inputs.service }} → ${{ inputs.tag }}
+    runs-on: ubuntu-latest
+
+    env:
+      SERVICE: ${{ inputs.service }}
+      IMAGE: ${{ inputs.image }}
+      TAG: ${{ inputs.tag }}
+      GITOPS_REF: ${{ inputs.gitops_ref }}
+      KUSTOMIZE_VERSION: v5.8.1
+
+    steps:
+      # As entradas vêm de outro repositório: validar antes de usar em caminho
+      # de arquivo, para não permitir algo como "../../etc".
+      - name: Valida as entradas
+        run: |
+          case "$SERVICE" in
+            auth-service|flag-service|targeting-service|evaluation-service|analytics-service) ;;
+            *) echo "::error::serviço desconhecido: $SERVICE"; exit 1 ;;
+          esac
+          case "$TAG" in
+            ''|latest|v0.0.0-bootstrap)
+              echo "::error::tag inválida ('$TAG'). O CI deve gerar uma tag imutável."; exit 1 ;;
+          esac
+          printf '%s' "$IMAGE" | grep -Eq '^[A-Za-z0-9._/-]+$' \
+            || { echo "::error::imagem inválida: $IMAGE"; exit 1; }
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.gitops_repo }}
+          ref: ${{ inputs.gitops_ref }}
+          token: ${{ secrets.GITOPS_TOKEN }}
+          fetch-depth: 0
+
+      - name: Instala o kustomize
+        run: |
+          curl -fsSL -o kustomize.tar.gz \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          tar -xzf kustomize.tar.gz
+          sudo install -m 0755 kustomize /usr/local/bin/kustomize
+          rm -f kustomize kustomize.tar.gz
+
+      - name: Atualiza a tag
+        working-directory: k8s/apps/${{ inputs.service }}
+        run: kustomize edit set image "${SERVICE}=${IMAGE}:${TAG}"
+
+      # Falhar aqui é melhor que deixar o Argo CD com uma Application em erro.
+      - name: Valida o build do kustomize
+        run: kustomize build "k8s/apps/${SERVICE}" > /dev/null
+
+      - name: Commit e push
+        run: |
+          git config user.name  "toggle-master-ci[bot]"
+          git config user.email "toggle-master-ci@users.noreply.github.com"
+
+          if git diff --quiet; then
+            echo "::notice::nada mudou — $SERVICE já está em $TAG"
+            exit 0
+          fi
+
+          git commit -am "chore(gitops): ${SERVICE} -> ${TAG}" \
+                     -m "Imagem: ${IMAGE}:${TAG}" \
+                     -m "Origem: ${{ github.repository }}@${{ github.sha }}"
+
+          # Outro serviço pode ter commitado no meio do caminho.
+          for attempt in 1 2 3 4 5; do
+            if git push origin "HEAD:${GITOPS_REF}"; then exit 0; fi
+            echo "push rejeitado (tentativa $attempt) — rebaseando"
+            git pull --rebase origin "${GITOPS_REF}"
+            sleep $((attempt * 3))
+          done
+          echo "::error::não foi possível fazer push no repositório de GitOps"
+          exit 1
