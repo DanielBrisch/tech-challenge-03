@@ -11,4 +11,4 @@ resources:
 images:
 - name: evaluation-service
   newName: 696500328658.dkr.ecr.us-east-1.amazonaws.com/togglemaster/evaluation-service
-  newTag: v0.0.0-bootstrap
+  newTag: e1846a3f38ec674a1a045d0695827d2b999fa459

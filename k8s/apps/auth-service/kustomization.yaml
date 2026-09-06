@@ -11,4 +11,4 @@ resources:
 images:
 - name: auth-service
   newName: 696500328658.dkr.ecr.us-east-1.amazonaws.com/togglemaster/auth-service
-  newTag: v0.0.0-bootstrap
+  newTag: 910920562edbe4e308379635f45f246721aa69c4

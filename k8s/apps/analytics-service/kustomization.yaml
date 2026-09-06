@@ -11,4 +11,4 @@ resources:
 images:
 - name: analytics-service
   newName: 696500328658.dkr.ecr.us-east-1.amazonaws.com/togglemaster/analytics-service
-  newTag: v0.0.0-bootstrap
+  newTag: a7f2fa859f1f2098dc18475d65e0aa66ffe4edc1
