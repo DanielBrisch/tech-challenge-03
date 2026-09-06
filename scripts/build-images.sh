@@ -28,8 +28,12 @@ kubectl -n kaniko create configmap docker-config \
 step "Disparando os builds"
 kubectl -n kaniko delete jobs --all >/dev/null 2>&1 || true
 for svc in $SERVICES; do
-  sha="$(curl -fsSL "https://api.github.com/repos/${GH_ORG}/${svc}/commits/main" \
-    | grep -m1 '"sha"' | cut -d'"' -f4)"
+  # Accept: vnd.github.sha devolve só o SHA, sem JSON para parsear.
+  # A versão anterior era `curl ... | grep -m1 '"sha"'`, que quebra sob
+  # `set -o pipefail`: o grep sai na primeira ocorrência, fecha o pipe, e o
+  # curl termina com "(23) Failure writing output to destination".
+  sha="$(curl -fsSL -H 'Accept: application/vnd.github.sha' \
+    "https://api.github.com/repos/${GH_ORG}/${svc}/commits/main")"
   [ -n "$sha" ] || fail "não consegui ler o commit de ${GH_ORG}/${svc}"
   info "${svc} main@${sha}"
   kubectl apply -f - >/dev/null <<EOF

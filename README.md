@@ -309,6 +309,7 @@ Isso preserva as imagens já buildadas e o state, e a próxima subida cai para
 | Erro | O que é |
 |---|---|
 | `ExpiredToken` / `InvalidClientTokenId` | Sessão do lab expirou. **Start Lab** e recole `~/.aws/credentials` |
+| `AccessDenied` citando `policy/voc-cancel-cred` | O lab foi **parado**, não expirado — a AWS anexa uma política que nega tudo. O `sts get-caller-identity` continua respondendo, então não parece problema de credencial. **Start Lab**, recole as credenciais e retome |
 | `AccessDenied` em `iam:CreateRole` | Algo tentando criar role. No Academy só a `LabRole` é utilizável |
 | `KMSKeyNotAccessibleFault` no RDS | O lab bloqueou KMS. Rode com `-var db_storage_encrypted=false` |
 | `unsupported Kubernetes version` | Ajuste `cluster_version` (`aws eks describe-cluster-versions`) |
@@ -316,4 +317,5 @@ Isso preserva as imagens já buildadas e o state, e a próxima subida cai para
 | Pods em CrashLoop com timeout de conexão | Confira em que SG e CIDR os nós estão: `aws ec2 describe-instances --filters "Name=tag:eks:cluster-name,Values=toggle-master-eks" --query 'Reservations[].Instances[].SecurityGroups[].GroupId'` |
 | `EXTERNAL-IP` do ingress em `<pending>` | Tags `kubernetes.io/cluster/<nome>` faltando nas subnets públicas |
 | `AccessDenied` em `s3:GetBucketObjectLockConfiguration` | SCP do lab. Por isso o bucket do state é criado por script, não por `aws_s3_bucket` |
+| `Error acquiring the state lock` | Um `apply`/`destroy` anterior foi interrompido e morreu segurando o lock. Confirme que não há terraform rodando e libere: `terraform -chdir=infra force-unlock -force <ID>` (o ID vem na própria mensagem de erro) |
 | `destroy` do `infra` travado na VPC | Rode o `destroy` do `platform` antes, para remover o NLB |
