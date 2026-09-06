@@ -1,0 +1,17 @@
+# Copie para terraform.tfvars e ajuste se precisar.
+# O .gitignore já ignora *.tfvars (mas não *.tfvars.example).
+
+region      = "us-east-1"
+project     = "toggle-master"
+environment = "lab"
+
+# AWS Academy usa LabRole. Em conta pessoal, crie roles próprias e troque aqui.
+lab_role_name = "LabRole"
+
+# Enxugue para caber no orçamento do laboratório:
+node_instance_types = ["t3.medium"]
+node_desired_size   = 2
+node_max_size       = 4
+
+# Se o laboratório recusar criar volume RDS criptografado (KMS bloqueado):
+# db_storage_encrypted = false

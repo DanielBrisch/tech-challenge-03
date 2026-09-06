@@ -1,0 +1,7 @@
+apiVersion: v2
+name: argocd-bootstrap
+description: >-
+  Chart mínimo usado pelo módulo para aplicar o Application raiz (App of Apps)
+  depois que o Argo CD e suas CRDs já existem. Renderiza .Values.manifests.
+type: application
+version: 1.0.0

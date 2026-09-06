@@ -1,0 +1,30 @@
+# Values do chart argo-cd (argoproj/argo-helm) — perfil AWS Academy.
+# Testado com o chart 10.8.0 (Argo CD v3.5.2).
+crds:
+  install: true
+  keep: false
+
+configs:
+  cm:
+    # Intervalo de polling do Git. O padrão é 120s; 30s deixa a demonstração
+    # fluida. Em produção, mantenha o padrão e configure webhook do GitHub.
+    timeout.reconciliation: 30s
+  params:
+    # Não há TLS na frente: evita o loop de redirect no port-forward.
+    server.insecure: true
+
+server:
+  service:
+    # ClusterIP + port-forward: não provisiona ELB, não gera custo.
+    # Para expor de verdade, troque para LoadBalancer.
+    type: ClusterIP
+
+# Não usados neste projeto — desligados para caber num node group pequeno.
+dex:
+  enabled: false
+notifications:
+  enabled: false
+applicationSet:
+  # O chart 10.8.0 não expõe applicationSet.enabled (só dex e notifications
+  # têm essa chave); zerar as réplicas é o que de fato desliga o controller.
+  replicas: 0
