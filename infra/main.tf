@@ -3,11 +3,11 @@ locals {
   cluster_name = "${var.project}-eks"
 
   services = [
-    "auth-service",
-    "flag-service",
-    "targeting-service",
-    "evaluation-service",
-    "analytics-service",
+    "togglemaster/auth-service",
+    "togglemaster/flag-service",
+    "togglemaster/targeting-service",
+    "togglemaster/evaluation-service",
+    "togglemaster/analytics-service",
   ]
 
   databases = {

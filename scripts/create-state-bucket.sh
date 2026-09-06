@@ -33,6 +33,5 @@ aws s3api put-public-access-block --bucket "$BUCKET" \
   'BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true'
 
 echo
-echo ">> pronto:"
-echo "   terraform -chdir=infra    init -backend-config=\"bucket=$BUCKET\""
-echo "   terraform -chdir=platform init -backend-config=\"bucket=$BUCKET\""
+
+echo "$BUCKET"

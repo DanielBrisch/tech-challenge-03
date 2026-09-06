@@ -10,9 +10,13 @@ Este projeto cria a infraestrutura e instala o Argo CD — daí em diante quem f
 o deploy é o Argo CD, a partir do Git.
 
 ```
-├── bootstrap/   ①  script que cria o bucket S3 do backend remoto
-├── infra/       ②  VPC · EKS · 3 RDS · Redis · DynamoDB · SQS · ECR
-├── platform/    ③  ingress-nginx · Argo CD
+├── scripts/
+│   ├── up.sh                    sobe tudo, do zero ao cluster pronto
+│   ├── destroy.sh               derruba tudo, sem deixar nada
+│   ├── build-images.sh          builda as 5 imagens no cluster (kaniko)
+│   └── create-state-bucket.sh   bucket S3 do backend remoto
+├── infra/       ①  VPC · EKS · 3 RDS · Redis · DynamoDB · SQS · ECR
+├── platform/    ②  ingress-nginx · Argo CD
 └── modules/
     ├── networking/   VPC, subnets, IGW, NAT, route tables
     ├── eks/          cluster + node group + add-on metrics-server
@@ -50,35 +54,21 @@ aws sts get-caller-identity
 
 ---
 
-## ① Backend remoto
-
-O `terraform.tfstate` não pode ficar local (requisito do enunciado). O bucket que
-o guarda é criado por um script, e não por Terraform, por dois motivos:
-
-1. O backend precisa existir **antes** do primeiro `terraform init` que o usa —
-   o clássico ovo e galinha do bootstrap.
-2. No AWS Academy o recurso `aws_s3_bucket` é inutilizável: o provider chama
-   `s3:GetBucketObjectLockConfiguration` em toda leitura, e o SCP do laboratório
-   nega essa ação explicitamente. As demais chamadas de S3 são permitidas.
+## Subir
 
 ```bash
-bash bootstrap/create-state-bucket.sh
+scripts/up.sh                 # infra + plataforma + Secret
+scripts/up.sh --with-images   # idem, e ainda builda as 5 imagens no cluster
 ```
 
-O nome sai como `toggle-master-tfstate-<account-id>` — único globalmente e
-estável entre sessões do lab. O script é idempotente. O bucket **sobrevive ao
-End Lab** e custa centavos.
+Leva de 25 a 35 minutos, quase tudo esperando o control plane do EKS e as 3
+instâncias RDS. O script é idempotente — pode rodar de novo sobre um ambiente
+já existente.
 
-## ② Infraestrutura
-
-```bash
-cd infra
-terraform init -backend-config="bucket=toggle-master-tfstate-<account-id>"
-terraform plan
-terraform apply
-```
-
-**20 a 25 minutos** — o control plane do EKS sozinho gasta uns 10.
+Em ordem, ele: cria o bucket do state, aplica `infra/`, configura o `kubeconfig`
+e espera os nós ficarem `Ready`, aplica `platform/`, e cria o Secret
+`toggle-master-secrets` a partir das senhas que o próprio Terraform gerou — sem
+ninguém copiar endpoint à mão.
 
 | Recurso | Detalhe |
 |---|---|
@@ -90,54 +80,46 @@ terraform apply
 | SQS | `toggle-master-evaluations` + dead-letter queue |
 | ECR | 5 repositórios, tags **imutáveis**, scan on push |
 
+Ao final:
+
 ```bash
+kubectl -n argocd port-forward svc/argocd-server 8080:80
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
+```
+
+### Imagens sem Docker local
+
+`scripts/build-images.sh` clona os 5 repositórios e builda **dentro do cluster**
+com kaniko, publicando no ECR. Não exige Docker na máquina — o que resolve o
+caso de a virtualização estar desabilitada e o Docker Desktop não subir.
+
+### Passo a passo manual
+
+Se preferir rodar na mão, é o que o `up.sh` faz:
+
+```bash
+scripts/create-state-bucket.sh                       # imprime o nome do bucket
+terraform -chdir=infra    init -backend-config="bucket=<nome>"
+terraform -chdir=infra    apply
 aws eks update-kubeconfig --region us-east-1 --name toggle-master-eks
-kubectl get nodes
+terraform -chdir=platform init -backend-config="bucket=<nome>"
+terraform -chdir=platform apply
+terraform -chdir=infra output -raw secrets_env > secrets.local.env
+kubectl create namespace toggle-master
+kubectl -n toggle-master create secret generic toggle-master-secrets --from-env-file=secrets.local.env
+rm secrets.local.env
 ```
 
 ### AWS Academy
 
 Nenhuma IAM Role ou Policy é criada. A `LabRole` existente é importada por data
-source e associada ao cluster e ao node group, como o enunciado exige:
+source e associada ao cluster e ao node group, como o ambiente exige:
 
 ```hcl
 data "aws_iam_role" "lab" {
   name = var.lab_role_name          # "LabRole"
 }
 ```
-
-## ③ Plataforma
-
-```bash
-cd ../platform
-terraform init -backend-config="bucket=toggle-master-tfstate-<account-id>"
-terraform apply
-```
-
-Instala o **ingress-nginx** (que provisiona o NLB) e o **Argo CD**, já
-registrando o App of Apps. Daí em diante o Argo CD assume.
-
-```bash
-terraform output -raw argocd_admin_password_command   # copie e rode
-kubectl -n argocd port-forward svc/argocd-server 8080:80
-```
-
-## ④ Criar o Secret
-
-O Terraform gerou as senhas; este passo entrega os valores ao cluster sem
-ninguém copiar endpoint à mão:
-
-```bash
-terraform -chdir=infra output -raw secrets_env > secrets.local.env
-kubectl create namespace toggle-master
-kubectl -n toggle-master create secret generic toggle-master-secrets \
-  --from-env-file=secrets.local.env
-rm secrets.local.env
-```
-
-`secrets.local.env` está no `.gitignore`.
-
----
 
 ## Decisões de implementação
 
@@ -199,33 +181,50 @@ Rodando 24h, o conjunto fica em torno de **US$ 8,45/dia** (≈ US$ 0,35/h): EKS
 US$ 0,10/h, NAT Gateway, NLB, 3 RDS, Redis e os nós. Com US$ 50 de crédito são
 **~142 horas**. Deixar ligado num fim de semana queima metade.
 
-**Bloco permanente** (~US$ 0,10/mês, não destrua): bucket do tfstate, 5 ECR,
-DynamoDB e SQS. Preserva imagens e state entre sessões.
-
 ```bash
-terraform -chdir=infra apply -target=module.ecr -target=module.dynamodb -target=module.sqs
+scripts/destroy.sh                      # pede confirmação
+scripts/destroy.sh --yes                # sem perguntar
+scripts/destroy.sh --keep-state-bucket  # preserva só o bucket do tfstate
 ```
 
-**Bloco efêmero** (US$ 0,35/h, destrua a cada sessão): VPC/NAT, EKS, nós, RDS,
-Redis e NLB.
+Leva de 20 a 30 minutos e **não deixa nada** — inclui os 5 repositórios ECR com
+as imagens, a tabela DynamoDB, as filas e o bucket do state. Ao final ele
+inventaria a conta e sai com código diferente de zero se algo sobrou.
 
-**A ordem de destruição importa:**
+**Nunca clique em End Lab sem destruir antes.** End Lab dá falsa sensação de
+segurança: ele para as instâncias EC2, mas EKS, RDS e ElastiCache continuam
+faturando.
+
+### O que o script faz além de `terraform destroy`
+
+Três coisas que um `terraform destroy` puro deixa para trás:
+
+1. **Finalizers das Applications do Argo CD.** Sem removê-los antes, a deleção
+   do namespace `argocd` fica presa indefinidamente.
+2. **Services `type: LoadBalancer`.** Cada um é um ELB criado pelo Kubernetes,
+   que o Terraform não conhece. Se o cluster morrer antes, o ELB fica órfão e
+   suas ENIs travam a deleção da VPC. O script remove os Services e espera os
+   ELBs sumirem antes de seguir.
+3. **O bucket do state.** É criado por script, não pelo Terraform, e é
+   versionado — apagar os objetos não basta, é preciso apagar cada versão e cada
+   delete marker. Só é removido se os dois `terraform destroy` tiverem passado,
+   para não perder o state com recursos ainda de pé.
+
+Depois disso ele ainda varre EIPs órfãos e log groups do cluster.
+
+### Manter só o bloco barato entre sessões
+
+Se você vai voltar amanhã, dá para preservar ECR, DynamoDB, SQS e o bucket
+(~US$ 0,10/mês) e destruir só o que custa caro:
 
 ```bash
-# 1. as Applications primeiro — os finalizers travam a deleção do namespace argocd
-kubectl -n argocd delete applications --all
-
-# 2. o platform, que remove o NLB
 terraform -chdir=platform destroy
-
-# 3. só então a infra
-terraform -chdir=infra destroy
+terraform -chdir=infra destroy \
+  -target=module.eks -target=module.rds -target=module.elasticache -target=module.networking
 ```
 
-Destruir `infra` antes de `platform` deixa o state do platform impossível de
-limpar, e o NLB órfão bloqueia o delete da VPC. **Nunca clique em End Lab sem
-destruir antes** — End Lab dá falsa sensação de segurança: ele para EC2, mas
-EKS e RDS continuam faturando.
+Isso preserva as imagens já buildadas e o state, e a próxima subida cai para
+~20 minutos.
 
 ---
 
